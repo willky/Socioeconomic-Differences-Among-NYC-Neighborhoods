@@ -1,0 +1,270 @@
+---
+title: "Socioeconomic Differences Among NYC Neighborhoods"
+author: "William Kyeremateng"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+<style type="text/css">
+  body{
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(knitr)
+library(nycgeo)
+library(tidyverse)
+library(sf)
+library(ggthemes)
+library(scales)
+library(gridExtra)
+library(kableExtra)
+library(ggthemes)
+```
+
+## Introduction
+
+This project analyzes the differences in neighborhoods characteristics in New York City. Using choropleth maps, it highlights the disparities in race/ethnicity, educational and poverty levels among the different NYC neighborhoods.
+
+## Data {.tabset .tabset-fade .tabset-pills}
+
+The analysis uses estimates from the American Community Survey (ACS) and spatial data of NYC neighborhoods, accessed through the `nycgeo` package in R. The package contains spatial data files for various geographic and administrative boundaries in New York City as well as selected demographic, social, and economic estimates from the ACS.
+
+
+Extract the data and take a look at the top few rows.
+
+```{r}
+##
+
+data <- 
+  nyc_boundaries(geography = "nta",
+                 add_acs_data = T)
+
+
+data %>% head(5)
+```
+
+
+
+## Data Wrangling
+
+In this section, I do some EDA to understand the data. This will help identify the amount of data cleaning and manipulation needed to get it ready for mapping.
+
+### Data Cleaning
+
+First, I check to see if there are any missing values in the data and figure out how to handle them.
+
+```{r fig.width = 10, fig.height = 5, fig.align = "center"}
+library(Amelia)
+
+data %>% missmap(main = "Observed vs Missing Values")
+```
+
+The plot above shows that about two percent of the data are missing. From the table below, we see that there are only six rows with missing data, all of which have missing ACS data.
+
+```{r}
+data %>% filter(is.na(pop_total_est))
+```
+
+As can shown in the table above, the rows with missing values are mostly parks, cemeteries and airports. The data treats them as neighborhoods of their own; however, there are no ACS demographic or economic data associated with them. 
+
+
+The rows with ACS missing data are dropped when calculating borough-wide central tendencies as they would affect the results if not excluded. However, I keep the missing data when mapping neighborhood differences. The rows (representing parks, cemeteries, airports, etc.) with ACS missing data are grayed out on the maps.
+
+
+## Bivariate Analysis {.tabset .tabset-pills .tabset-fade}
+
+Plot borough against the demographic, educational and economic variables to understand the differences among NYC residents from different boroughs.
+
+
+### Population by Race
+
+```{r fig.width = 12, fig.height = 6, fig.align = "center"}
+data %>% 
+  select(borough_name, pop_white_est, pop_asian_est, pop_black_est, pop_hisp_est) %>% 
+  as.data.frame() %>% 
+  drop_na(pop_white_est) %>%
+  group_by(borough_name) %>% 
+  summarise(White = sum(pop_white_est),
+            Asian = sum(pop_asian_est),
+            Black = sum(pop_black_est),
+            Hispanic = sum(pop_black_est)
+            ) %>% 
+  pivot_longer(cols = 2:5,
+               names_to = "Race",
+               values_to = "total_pop") %>%
+  ggplot(aes(x = borough_name, y = total_pop, fill = Race)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_y_continuous(labels = percent) +
+  scale_fill_tableau() +
+  theme_few() +
+  labs(title = "Share of Borough Population by Race/Ethnicity",
+       x = NULL, y = "Share of Total Borough Population")
+```
+
+
+### Educational Levels by Borough
+
+```{r fig.width = 12, fig.height = 6, fig.align = "center"}
+data %>% 
+  select(borough_name,pop_total_est, pop_ba_above_est) %>% 
+  as.data.frame() %>% 
+  drop_na(pop_ba_above_est) %>%
+  mutate(no_bachelors = pop_total_est - pop_ba_above_est) %>% 
+  group_by(borough_name) %>%
+  summarise(`Bachelors or Higher` = sum(pop_ba_above_est),
+            `No Bachelors` = sum(no_bachelors)) %>%
+  pivot_longer(cols = 2:3,
+               names_to = "Educ. Level",
+               values_to = "Total") %>%
+  ggplot(aes(x = borough_name, y = Total, fill = `Educ. Level`)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("#76B7B2", "#E15759")) +
+  theme_few() +
+  labs(title = "Borough Population by with Educational Level",
+       x = NULL, y = "Share of Total Borough Population")
+```
+
+
+### Poverty Levels by Borough
+
+
+
+```{r fig.width = 12, fig.height = 6, fig.align = "center"}
+data %>% 
+  select(borough_name,pop_total_est, pop_inpov_est) %>% 
+  as.data.frame() %>% 
+  drop_na(pop_total_est) %>%
+  mutate(not_poor = pop_total_est - pop_inpov_est) %>% 
+  group_by(borough_name) %>%
+  summarise("Not Poor" = sum(not_poor),
+            "Poor" = sum(pop_inpov_est)) %>% 
+  pivot_longer(cols = 2:3,
+               names_to = "Poverty Level",
+               values_to = "Total") %>%
+  ggplot(aes(x = borough_name, y = Total, fill = `Poverty Level`)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_y_continuous(labels = percent) +
+  scale_fill_manual(values = c("#76B7B2", "#E15759")) +
+  coord_flip() +
+  theme_few() +
+  labs(title = "Borough Population by Poverty Level",
+       x = NULL, y = "Share of Total Borough Population")
+```
+
+
+## Race by Neighborhood
+
+This section takes a look at the racial components of neighborhoods. The maps depict the share of a neighborhood's population that are White, Black, Hispanic or Asian. They 
+
+```{r fig.width = 12, fig.height = 8, fig.align = "center"}
+grid.arrange(
+  
+## White  
+  data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_white_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "% White",
+                                labels = percent_format()
+                                ) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Share Neighborhood Population that is White"),
+  
+## Black  
+  data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_black_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "% Black",
+                                labels = percent_format()
+                                ) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Share Neighborhood Population that is Black"),
+  
+## Hispanics  
+  data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_hisp_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "% Hispanic",
+                                labels = percent_format()
+                                ) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Share Neighborhood Population that is Hispanic"),
+  
+## Asians  
+  data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_asian_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "% Asian",
+                                labels = percent_format()
+                                ) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Share Neighborhood Population that is Asian"),
+  
+  
+  ncol = 2, nrow = 2
+
+    
+)
+```
+
+
+
+## Share of Neighborhood Population with Bachelors or Higher
+
+
+```{r fig.width = 12, fig.height = 8, fig.align = "center"}
+data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_ba_above_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "Bachelor's or Higher",
+                                labels = percent_format()) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Which NYC Neighborhood is the Most educated?",
+       caption = "Grayed out areas are parks, cemeteries, airports, etc.")
+```
+
+
+## Share of Neighborhood Population in Poverty
+
+```{r fig.width = 12, fig.height = 8, fig.align = "center"}
+data %>% 
+  ggplot()+
+  geom_sf(aes(fill = pop_inpov_pct_est), color = "white", lwd = .2) + 
+  scale_fill_continuous_tableau(palette = "Blue-Teal", name = "Bachelor's or Higher",
+                                labels = percent_format()) + 
+  theme_void() +
+  theme(plot.title.position = 'plot', 
+        plot.title = element_text(hjust = 0.5)) +
+  theme(panel.grid = element_line(color = "transparent")) +
+  labs(title = "Share of Neighborhood Population in Poverty",
+       caption = "Grayed out areas are parks, cemeteries, airports, etc.")
+```
+
+
+
+## Takeaways
+
++ A larger share of residents in predominately White and Asian neighborhoods have a bachelor's degree or higher.
+
++ The predominantly White and Asian neighborhoods have smaller shares of their residents living in poverty. The reverse is true for predominantly Black and Hispanic neighborhoods.
+
++ Neighborhoods with high share of college graduates tend to have low poverty rates.
