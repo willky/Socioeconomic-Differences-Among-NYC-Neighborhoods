@@ -26,7 +26,7 @@ library(ggthemes)
 ```
 
 ## Introduction
-test
+
 This project analyzes the differences in neighborhoods characteristics in New York City. Using choropleth maps, it highlights the disparities in race/ethnicity, educational and poverty levels among the different NYC neighborhoods.
 
 ## Data {.tabset .tabset-fade .tabset-pills}
